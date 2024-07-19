@@ -34,6 +34,7 @@ precision highp float;
 uniform vec2 u_resolution;
 uniform vec2 u_mod_val;
 uniform vec3 u_camera_pos;
+uniform vec3 u_camera_rot;
 
 out vec4 frag_color;
 
@@ -335,9 +336,8 @@ void main()
     vec2 uv = (gl_FragCoord.xy / u_resolution.xy) * 2.0 - 1.0;
     uv.y *= aspect;
 
-    vec3 camera_position = u_camera_pos;
-    vec3 ro = camera_position;
-    vec3 rd = vec3(uv, 1.0);
+    vec3 ro = u_camera_pos;
+    vec3 rd = normalize(vec3(sin(u_camera_rot.x + uv.x), sin(u_camera_rot.y+uv.y), cos(u_camera_rot.x + uv.x)));
 
     vec3 shaded_color = ray_march(ro, rd);
 
@@ -351,6 +351,8 @@ let multi = 1;
 let multiChange = 0.01;
 let delay = 1000/30;
 let cameraPos = [3.0, -6.0, -3.5];
+let cameraRot = [0.0, 0.0, 0.0];
+let sensitivity = 0.005;
 
 function main() {
   // Get A WebGL context
@@ -360,6 +362,7 @@ function main() {
   addControls(canvas, drawScene);
   
   setInterval(() => {
+    handleControls();
     drawScene();
     multi += multiChange;
     multi = (20 + multi) % 40 - 20;
@@ -371,31 +374,67 @@ function getMousePos(canvas, evt) {
 }
 
 function addControls(canvas, drawScene) {
-  // canvas.addEventListener('mousemove', function(evt) {
-  //   mouse = getMousePos(canvas, evt);
-  //   //console.log('Mouse position: ' + mouse[0] + ',' + mouse[1]);
-  //   //drawScene();
-  // });
-  canvas.addEventListener('keydown', (e) => {
-    if(e.key == 'ArrowUp'){
-      cameraPos[2] += 1;
+  canvas.addEventListener('mousemove', (e) => {
+    cameraRot[0] += e.movementX * sensitivity;
+    cameraRot[1] -= e.movementY * sensitivity;
+    if (cameraRot[1] > Math.PI/2){
+      cameraRot[1] = Math.PI/2;
     }
-    else if(e.key == 'ArrowDown'){
-      cameraPos[2] -= 1;
+    if (cameraRot[1] < -Math.PI/2){
+      cameraRot[1] = -Math.PI/2;
     }
-    else if(e.key == 'ArrowLeft'){
-      cameraPos[0] -= 1;
+    if (cameraRot[0] > Math.PI){
+      cameraRot[0] -= Math.PI * 2;
     }
-    else if(e.key == 'ArrowRight'){
-      cameraPos[0] += 1;
+    if (cameraRot[0] < -Math.PI){
+      cameraRot[0] += Math.PI * 2;
     }
-    else if(e.key == "Control"){
-      cameraPos[1] -= 1;
-    }
-    else if(e.key == "Shift"){
-      cameraPos[1] += 1;
-    }
+    console.log(cameraRot);
+    // move the mouse to the center of the canvas
+    
   });
+  canvas.addEventListener('keydown', (e) => {
+    controlsPressed[e.key] = true;
+  });
+  canvas.addEventListener('keyup', (e) => {
+    controlsPressed[e.key] = false;
+  });
+  canvas.addEventListener("click", async () => {
+    await canvas.requestPointerLock();
+  });
+}
+
+function moveForwards(speed, rot){
+  const x = Math.sin(rot[0]) * speed;
+  const z = Math.cos(rot[0]) * speed;
+  cameraPos[0] += x;
+  cameraPos[2] += z;
+}
+
+function moveLeft(speed, rot){
+  const x = Math.sin(rot[0] + Math.PI/2) * speed;
+  const z = Math.cos(rot[0] + Math.PI/2) * speed;
+  cameraPos[0] -= x;
+  cameraPos[2] -= z;
+}
+
+const movementSpeed = 3/delay;
+const controlsPressed = {};
+const controlActions = {
+  "w": () => moveForwards(movementSpeed, cameraRot),
+  "s": () => moveForwards(-movementSpeed, cameraRot),
+  "a": () => moveLeft(movementSpeed, cameraRot),
+  "d": () => moveLeft(-movementSpeed, cameraRot),
+  "Control": () => cameraPos[1] -= movementSpeed,
+  "Shift": () => cameraPos[1] += movementSpeed,
+}
+
+function handleControls(){
+  for (const key in controlsPressed) {
+    if (controlsPressed[key] && controlActions[key]) {
+      controlActions[key]();
+    }
+  }
 }
 
 class WorldObject {
@@ -448,6 +487,7 @@ function configureGL(canvas){
   var resolutionUniformLocation = gl.getUniformLocation(program, "u_resolution");
   var zoomUniformLocation = gl.getUniformLocation(program, "u_mod_val");
   var cameraLocationUniformLocation = gl.getUniformLocation(program, "u_camera_pos");
+  var cameraRotationUniformLocation = gl.getUniformLocation(program, "u_camera_rot");
   var numObjectsUniformLocation = gl.getUniformLocation(program, "u_numObjects");
 
   // Create a buffer and put a single pixel space rectangle in
@@ -564,6 +604,7 @@ function configureGL(canvas){
     gl.uniform2f(resolutionUniformLocation, gl.canvas.clientWidth, gl.canvas.clientHeight);
     gl.uniform2f(zoomUniformLocation, modVal, multi);
     gl.uniform3f(cameraLocationUniformLocation, cameraPos[0], cameraPos[1], cameraPos[2]);
+    gl.uniform3f(cameraRotationUniformLocation, cameraRot[0], cameraRot[1], cameraRot[2]);
     gl.uniform1i(numObjectsUniformLocation, numObjects);
 
     // draw
